@@ -46,3 +46,23 @@ Instead of using a default subscription layout, this widget gives more control o
 - Custom properties are attached
 - Page reloads (if needed)
 - Cart drawer opens automatically
+
+## Why I Built It
+The default subscription layouts often don’t allow flexibility when showing multiple products together under a unified experience.
+
+### This widget was built to:
+
+- Provide better UI control
+- Improve customer clarity around pricing
+- Support bundle-style subscription purchasing
+- Maintain compatibility with Shopify’s cart system
+
+## Installation Steps
+
+- Go to Shopify Admin
+- Online Store → Themes
+- Click "Edit Code"
+- Create a new Section file
+- Paste the widget code
+- Add the section to your page
+- Select the subscription products collection
