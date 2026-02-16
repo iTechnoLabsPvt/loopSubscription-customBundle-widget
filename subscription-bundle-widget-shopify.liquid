@@ -1,0 +1,311 @@
+ 
+
+{% stylesheet %}
+.multi-subscription { width: 100%; }
+.loop-widget { background: #fde6f1; padding: 40px; border-radius: 24px; width: 70%; margin-left: auto; }
+.loop-widget h2 { margin-bottom: 10px; }
+.loop-products { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 14px; margin: 20px 0; }
+.loop-product { border: 2px solid transparent; border-radius: 50%; padding: 4px; cursor: pointer; transition: 0.2s; box-shadow: rgba(149, 157, 165, 0.2) 0px 8px 24px; }
+.loop-product.active { border-color: #1db3ae; }
+h3.plan_title { margin-bottom: 10px; }
+.loop-product img { width: 100%; border-radius: 50%; }
+.loop-controls { margin-top: 20px; }
+.loop-controls select { width: 100%; padding: 12px; border-radius: 20px; border-color: #1db3ae; }
+.loop-add { background: linear-gradient(45deg, #3254a1, #1db3ae); color: #fff; width: 100%; padding: 14px; border-radius: 30px; border: none; font-size: 16px; cursor: pointer; }
+.button_qantity { display: flex; margin-top: 15px; gap: 12px; }
+.qty-wrap { display: inline-flex; align-items: center; border: 1px solid #1db3ae; border-radius: 50px; padding: 0px 15px; gap: 5px; }
+.qty-wrap button { cursor: pointer; border: none; background: transparent; }
+.qty-wrap input { width: 40px; text-align: center; border: none; background: transparent; }
+.subscription_pricing {align-items: center;display: flex; gap: 20px;}
+span.plan_price { font-size: 40px; }
+.compare_price { font-size: 22px; display: flex; align-items: center; gap: 20px; color: gray; position: relative; }
+.compare_price::after { content: ""; position: absolute; left: 0; right: 85px; top: 50%; height: 1px; background: gray; }
+span.price_save { font-size: 12px; border: 1px solid #000; padding: 5px 10px; border-radius: 40px; background: red; color: #fff; position: relative; z-index: 1; }
+
+{% endstylesheet %}
+
+<div class="loop-widget">
+  <h2>{{ block.settings.heading }}</h2>
+  <div class="selected_plan_details">
+    <h3 class="plan_title"></h3>
+    <div class="subscription_pricing">
+        <span class="plan_price"></span>    
+        <span class="compare_price">  
+            <span class="price_save"></span>
+        </span>
+    </div>
+    
+  </div>
+
+  <!-- PRODUCTS -->
+  {% assign selected_collection = block.settings.collection %}
+  {% assign collection_obj = nil %}
+  {% if selected_collection %}
+    {% if selected_collection.handle %}
+      {% assign collection_obj = collections[selected_collection.handle] %}
+    {% elsif selected_collection != blank %}
+      {% assign collection_obj = collections[selected_collection] %}
+    {% endif %}
+  {% endif %}
+
+  <div class="loop-products">
+    {% if collection_obj and collection_obj.products.size > 0 %}
+      {% for product in collection_obj.products %}
+
+        {% assign selling_plan_id = nil %}
+        {% if product.selling_plan_groups.size > 0 %}
+          {% assign selling_plan_id = product.selling_plan_groups.first.selling_plans.first.id %}
+        {% endif %}
+
+        <div class="loop-product"
+             data-variant="{{ product.variants.first.id }}"
+             data-selling-plan="{{ selling_plan_id }}"
+             data-title="{{ product.title | escape }}"
+             data-price-cents="{{ product.variants.first.price }}"
+             data-compare-cents="{{ product.variants.first.compare_at_price | default: 0 }}"
+             data-price-formatted="{{ product.variants.first.price | money }}"
+             data-compare-formatted="{{ product.variants.first.compare_at_price | money }}">
+          <img src="{{ product.featured_image | img_url: '200x' }}"
+               alt="{{ product.title }}" width="200" height="200" loading="lazy">
+        </div>
+      {% endfor %}
+    {% else %}
+      
+      <p>No products found in the selected collection.</p>
+    {% endif %}
+  </div>
+
+  <!-- FREQUENCY -->
+  <div class="loop-controls">
+    <select id="loopFrequency">
+        <option value="1_month">Deliver every month</option>
+        <option value="one_time">One time purchase</option>
+    </select>
+  </div>
+
+  <div class="button_qantity">
+    <!-- QUANTITY -->
+    <div class="qty-wrap">
+        <button type="button" onclick="loopQty(-1)">−</button>
+        <input type="number" id="loopQty" value="1" min="1">
+        <button type="button" onclick="loopQty(1)">+</button>
+    </div>
+
+    <!-- ADD TO CART -->
+    <button class="loop-add" onclick="addLoopSubscription()">
+        Add To Cart
+    </button>
+  </div>
+</div>
+ 
+{% javascript %}
+document.addEventListener('DOMContentLoaded', function () {
+  const openAfterReloadKey = 'loop_sub_open_cart';
+  let loopVariant = null;
+  let loopSellingPlan = null;
+
+  // Define cart action: 'drawer' to open drawer, 'redirect' to go to cart page
+  const cartAction = 'drawer'; // change to 'redirect' if needed
+
+  // Initialize product selection
+  function initLoopWidget() {
+    // bind per-widget and auto-select the first product inside each widget
+    document.querySelectorAll('.loop-widget').forEach(widget => {
+      const products = widget.querySelectorAll('.loop-product');
+      if (!products.length) return;
+      products.forEach(item => {
+        item.addEventListener('click', () => {
+          products.forEach(p => p.classList.remove('active'));
+          item.classList.add('active');
+
+          // variant & selling plan (globals preserved for inline handlers)
+          const variantId = parseInt(item.dataset.variant, 10);
+          loopVariant = isNaN(variantId) ? null : variantId;
+          const planId = item.dataset.sellingPlan ? parseInt(item.dataset.sellingPlan, 10) : null;
+          loopSellingPlan = isNaN(planId) ? null : planId;
+
+          // populate plan UI within widget (always show price; show compare only if available)
+          try {
+            const title = item.dataset.title || '';
+            const priceFormatted = item.dataset.priceFormatted || '';
+            const compareFormatted = item.dataset.compareFormatted || '';
+            const priceCents = parseInt(item.dataset.priceCents || '0', 10) || 0;
+            const compareCents = parseInt(item.dataset.compareCents || '0', 10) || 0;
+
+            const titleEl = widget.querySelector('.plan_title');
+            const priceEl = widget.querySelector('.plan_price');
+            const compareEl = widget.querySelector('.compare_price');
+            const pricingWrap = widget.querySelector('.subscription_pricing');
+
+            if (titleEl) titleEl.textContent = title;
+            if (priceEl) priceEl.textContent = priceFormatted;
+            if (pricingWrap) pricingWrap.style.display = '';
+
+            if (compareCents > 0 && compareCents > priceCents) {
+              const discountPercent = Math.round(((compareCents - priceCents) / compareCents) * 100);
+              if (compareEl) {
+                compareEl.innerHTML = compareFormatted + ' <span class="price_save">Save ' + discountPercent + '%</span>';
+              }
+            } else {
+              if (compareEl) compareEl.innerHTML = '';
+            }
+          } catch (e) {}
+        });
+      });
+
+      // auto-select first product in this widget
+      try { products[0].click(); } catch (e) {}
+    });
+  }
+
+  initLoopWidget();
+
+  // Adjust quantity
+  function loopQty(val) {
+    const qty = document.getElementById('loopQty');
+    if (!qty) return;
+    const newQty = Math.max(1, parseInt(qty.value || '1', 10) + parseInt(val, 10));
+    qty.value = newQty;
+  }
+
+  // Robust cart drawer opener
+  function openCartDrawer() {
+    const drawerEl =
+      document.querySelector('cart-drawer') ||
+      document.getElementById('CartDrawer') ||
+      document.querySelector('.cart-drawer') ||
+      document.querySelector('[data-cart-drawer]');
+
+    if (drawerEl) {
+      if (typeof drawerEl.open === 'function') {
+        drawerEl.open();
+        return;
+      }
+      try {
+        drawerEl.dispatchEvent(new CustomEvent('open', { bubbles: true }));
+        return;
+      } catch (e) {}
+    }
+
+    const cartBtn =
+      document.querySelector('[aria-controls="CartDrawer"]') ||
+      document.querySelector('.cart-drawer-toggle') ||
+      document.querySelector('[data-cart-toggle]') ||
+      document.querySelector('[data-toggle="cart"]') ||
+      document.querySelector('.header__icon--cart');
+
+    if (cartBtn) {
+      cartBtn.click();
+      return;
+    }
+
+    console.warn('Cart drawer not found, redirecting to cart page.');
+    window.location.href = '/cart';
+  }
+
+  // Add product/subscription to cart
+  function addLoopSubscription() {
+    if (!loopVariant) {
+      alert('Please select a product');
+      return;
+    }
+
+    const frequencyEl = document.getElementById('loopFrequency');
+    if (!frequencyEl) {
+      alert('Frequency selector not found');
+      return;
+    }
+
+    const frequency = frequencyEl.value;
+    const quantityEl = document.getElementById('loopQty');
+    const quantity = quantityEl ? parseInt(quantityEl.value, 10) || 1 : 1;
+
+    let bodyObj = { id: loopVariant, quantity };
+
+    if (frequency !== 'one_time') {
+      if (!loopSellingPlan) {
+        alert('Subscription plan not available for this product');
+        return;
+      }
+      bodyObj.selling_plan = loopSellingPlan;
+      bodyObj.properties = {
+        "_loop_subscription": "true",
+        "_loop_frequency": frequency
+      };
+    }
+
+    fetch('/cart/add.js', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyObj)
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Add to cart failed');
+        return res.json();
+      })
+      .then(() => {
+        // Fetch cart to decide action
+        fetch('/cart.js')
+          .then(r => r.json())
+          .then(() => {
+            if (cartAction === 'drawer') {
+              try { sessionStorage.setItem(openAfterReloadKey, '1'); } catch (e) {}
+              window.location.reload();
+            } else {
+              window.location.href = '/cart';
+            }
+          })
+          .catch(() => {
+            if (cartAction === 'drawer') {
+              try { sessionStorage.setItem(openAfterReloadKey, '1'); } catch (e) {}
+              window.location.reload();
+            } else {
+              window.location.href = '/cart';
+            }
+          });
+      })
+      .catch(() => {
+        try { sessionStorage.setItem(openAfterReloadKey, '1'); } catch (e) {}
+        window.location.reload();
+      });
+  }
+
+  // AFTER RELOAD → OPEN DRAWER
+  try {
+    if (sessionStorage.getItem(openAfterReloadKey) === '1') {
+      sessionStorage.removeItem(openAfterReloadKey);
+      setTimeout(openCartDrawer, 120);
+    }
+  } catch (e) {}
+
+  // Expose functions for inline onclick handlers
+  window.addLoopSubscription = addLoopSubscription;
+  window.loopQty = loopQty;
+});
+{% endjavascript %}
+
+
+{% schema %}
+{
+  "name": "Loop Subscription Widget",
+  "class": "multi-subscription",
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Choose Your Subscription"
+    },
+    {
+      "type": "collection",
+      "id": "collection",
+      "label": "Subscription Products Collection"
+    }
+  ],
+  "presets": [
+    {
+      "name": "Loop Subscription Widget"
+    }
+  ]
+}
+{% endschema %}
